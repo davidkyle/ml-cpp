@@ -104,3 +104,34 @@ task wrapper(type: Wrapper) {
     }
 }
 
+task cleanOldState(type: Delete) {
+  delete "${buildDir}/bwcStateFiles/${version}"
+}
+
+task dumpState(type: Exec) {
+  dependsOn cleanOldState
+  workingDir 'lib/api/dump_state'
+  commandLine './dump_state'
+  args "--outputDir=${buildDir}/bwcStateFiles/${version}"
+}
+
+task buildStateFilesZip(type: Zip) {
+  // dependsOn dumpState
+  baseName = "mlModelStateBwcFiles"
+  version = project.version
+  destinationDir = file("${buildDir}/bwcStateFiles/${version}")
+  from("${buildDir}/bwcStateFiles/${version}") {
+    include "*.json"
+  }
+}
+
+task bwcStateFilesUpload(type: UploadS3Task, dependsOn: buildStateFilesZip) {
+  bucket 'prelert-artifacts'
+  upload buildStateFilesZip.outputs.files.singleFile, "qa/bwcmodelstate/${buildStateFilesZip.outputs.files.singleFile.name}"
+  description = 'Upload model state BWC files to S3 Bucket'
+}
+
+//
+// task bwcStateFilesDownload() {
+// TODO download zipped state files into ${buildDir}/bwcStateFiles/ and extract
+// }

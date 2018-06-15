@@ -10,6 +10,7 @@
 #include <core/CJsonOutputStreamWrapper.h>
 #include <core/CLogger.h>
 #include <core/COsFileFuncs.h>
+#include <core/CRegex.h>
 
 #include <model/CAnomalyDetectorModelConfig.h>
 #include <model/CLimits.h>
@@ -23,6 +24,8 @@
 #include <api/CSingleStreamDataAdder.h>
 #include <api/CSingleStreamSearcher.h>
 #include <api/CStateRestoreStreamFilter.h>
+
+#include <boost/filesystem.hpp>
 
 #include <fstream>
 #include <iterator>
@@ -41,21 +44,34 @@ void reportPersistComplete(ml::api::CModelSnapshotJsonWriter::SModelSnapshotRepo
     numDocsOut = modelSnapshotReport.s_NumDocs;
 }
 
-struct SRestoreTestConfig {
-    std::string s_Version;
-    bool s_DetectorRestoreIsSymmetric;
-    bool s_CategorizerRestoreIsSymmetric;
-};
+std::vector<std::string> buildListOfVersions() {
+    std::vector<std::string> versions;
+    boost::filesystem::path stateFolder("../../../build/bwcStateFiles");
+    boost::filesystem::directory_iterator dirItr(stateFolder);
+    for (const auto& entry : dirItr) {
+        if (entry.status().type() == boost::filesystem::directory_file) {
 
-const std::vector<SRestoreTestConfig> BWC_VERSIONS{
-    SRestoreTestConfig{"5.6.0", false, true}, SRestoreTestConfig{"6.0.0", false, true},
-    SRestoreTestConfig{"6.1.0", false, true}};
+            // Sanity check that the dir name contains a version number
+            std::string path = entry.path().string();
+            ml::core::CRegex semVersion;
+            CPPUNIT_ASSERT(semVersion.init(".*\\d\\.\\d{1,2}\\.\\d{1,2}.*"));
+            ml::core::CRegex::TStrVec tokens;
+            if (semVersion.matches(path)) {
+                versions.push_back(path);
+            } else {
+                LOG_WARN(<< "Ignoring directory " << path << " as the name does not contain a version number");
+            }
+        }
+    }
+    return versions;
+}
+
 }
 
 CppUnit::Test* CRestorePreviousStateTest::suite() {
     CppUnit::TestSuite* suiteOfTests = new CppUnit::TestSuite("CRestorePreviousStateTest");
     suiteOfTests->addTest(new CppUnit::TestCaller<CRestorePreviousStateTest>(
-        "CRestorePreviousStateTest::testRestoreDetectorPersistBy",
+        "CRestorePreviousStateTest::testRestoreDetectorBy",
         &CRestorePreviousStateTest::testRestoreDetectorBy));
     suiteOfTests->addTest(new CppUnit::TestCaller<CRestorePreviousStateTest>(
         "CRestorePreviousStateTest::testRestoreDetectorOver",
@@ -79,72 +95,68 @@ CppUnit::Test* CRestorePreviousStateTest::suite() {
 }
 
 void CRestorePreviousStateTest::testRestoreDetectorBy() {
-    for (const auto& version : BWC_VERSIONS) {
-        LOG_INFO(<< "Test restoring state from version " << version.s_Version);
+    for (const auto& versionedDir : buildListOfVersions()) {
+        LOG_INFO(<< "Test restoring state from version " << versionedDir);
         this->anomalyDetectorRestoreHelper(
-            "testfiles/state/" + version.s_Version + "/by_detector_state.json",
-            "testfiles/new_mlfields.conf", version.s_DetectorRestoreIsSymmetric, 0);
+            versionedDir + "/by_detector_state.json",
+            "testfiles/new_mlfields.conf", 0);
     }
 }
 
 void CRestorePreviousStateTest::testRestoreDetectorOver() {
-    for (const auto& version : BWC_VERSIONS) {
-        LOG_INFO(<< "Test restoring state from version " << version.s_Version);
+    for (const auto& versionedDir : buildListOfVersions()) {
+        LOG_INFO(<< "Test restoring state from version " << versionedDir);
         this->anomalyDetectorRestoreHelper(
-            "testfiles/state/" + version.s_Version + "/over_detector_state.json",
-            "testfiles/new_mlfields_over.conf", version.s_DetectorRestoreIsSymmetric, 0);
+            versionedDir + "/over_detector_state.json",
+            "testfiles/new_mlfields_over.conf", 0);
     }
 }
 
 void CRestorePreviousStateTest::testRestoreDetectorPartition() {
-    for (const auto& version : BWC_VERSIONS) {
-        LOG_INFO(<< "Test restoring state from version " << version.s_Version);
+    for (const auto& versionedDir : buildListOfVersions()) {
+        LOG_INFO(<< "Test restoring state from version " << versionedDir);
         this->anomalyDetectorRestoreHelper(
-            "testfiles/state/" + version.s_Version + "/partition_detector_state.json",
-            "testfiles/new_mlfields_partition.conf",
-            version.s_DetectorRestoreIsSymmetric, 0);
+            versionedDir + "/partition_detector_state.json",
+            "testfiles/new_mlfields_partition.conf", 0);
     }
 }
 
 void CRestorePreviousStateTest::testRestoreDetectorDc() {
-    for (const auto& version : BWC_VERSIONS) {
-        LOG_INFO(<< "Test restoring state from version " << version.s_Version);
+    for (const auto& versionedDir : buildListOfVersions()) {
+        LOG_INFO(<< "Test restoring state from version " << versionedDir);
         this->anomalyDetectorRestoreHelper(
-            "testfiles/state/" + version.s_Version + "/dc_detector_state.json",
-            "testfiles/new_persist_dc.conf", version.s_DetectorRestoreIsSymmetric, 5);
+            versionedDir + "/dc_detector_state.json",
+            "testfiles/new_persist_dc.conf", 5);
     }
 }
 
 void CRestorePreviousStateTest::testRestoreDetectorCount() {
-    for (const auto& version : BWC_VERSIONS) {
-        LOG_INFO(<< "Test restoring state from version " << version.s_Version);
+    for (const auto& versionedDir : buildListOfVersions()) {
+        LOG_INFO(<< "Test restoring state from version " << versionedDir);
         this->anomalyDetectorRestoreHelper(
-            "testfiles/state/" + version.s_Version + "/count_detector_state.json",
-            "testfiles/new_persist_count.conf", version.s_DetectorRestoreIsSymmetric, 5);
+            versionedDir + "/count_detector_state.json",
+            "testfiles/new_persist_count.conf", 5);
     }
 }
 
 void CRestorePreviousStateTest::testRestoreNormalizer() {
-    for (const auto& version : BWC_VERSIONS) {
+    for (const auto& versionedDir : buildListOfVersions()) {
         ml::model::CAnomalyDetectorModelConfig modelConfig =
             ml::model::CAnomalyDetectorModelConfig::defaultConfig(3600);
         ml::api::CCsvOutputWriter outputWriter;
         ml::api::CResultNormalizer normalizer(modelConfig, outputWriter);
-        CPPUNIT_ASSERT(normalizer.initNormalizer(
-            "testfiles/state/" + version.s_Version + "/normalizer_state.json"));
+        CPPUNIT_ASSERT(normalizer.initNormalizer(versionedDir + "/normalizer_state.json"));
     }
 }
 
 void CRestorePreviousStateTest::testRestoreCategorizer() {
-    for (const auto& version : BWC_VERSIONS) {
-        LOG_INFO(<< "Test restoring state from version " << version.s_Version);
-        categorizerRestoreHelper("testfiles/state/" + version.s_Version + "/categorizer_state.json",
-                                 version.s_CategorizerRestoreIsSymmetric);
+    for (const auto& versionedDir : buildListOfVersions()) {
+        LOG_INFO(<< "Test restoring state from version " << versionedDir);
+        categorizerRestoreHelper(versionedDir + "/categorizer_state.json");
     }
 }
 
-void CRestorePreviousStateTest::categorizerRestoreHelper(const std::string& stateFile,
-                                                         bool isSymmetric) {
+void CRestorePreviousStateTest::categorizerRestoreHelper(const std::string& stateFile) {
     ml::model::CLimits limits;
     ml::api::CFieldConfig config("count", "mlcategory");
 
@@ -170,30 +182,14 @@ void CRestorePreviousStateTest::categorizerRestoreHelper(const std::string& stat
         ml::api::CSingleStreamSearcher retriever(strm);
         CPPUNIT_ASSERT(restoredTyper.restoreState(retriever, completeToTime));
     }
-
-    if (isSymmetric) {
-        // Test the persisted state of the restored detector is the
-        // same as the riginial
-        std::string newPersistedState;
-        {
-            std::ostringstream* strm(nullptr);
-            ml::api::CSingleStreamDataAdder::TOStreamP ptr(strm = new std::ostringstream());
-            ml::api::CSingleStreamDataAdder persister(ptr);
-            CPPUNIT_ASSERT(restoredTyper.persistState(persister));
-            newPersistedState = strm->str();
-        }
-        CPPUNIT_ASSERT_EQUAL(this->stripDocIds(origPersistedState),
-                             this->stripDocIds(newPersistedState));
-    }
 }
 
 void CRestorePreviousStateTest::anomalyDetectorRestoreHelper(const std::string& stateFile,
                                                              const std::string& configFileName,
-                                                             bool isSymmetric,
                                                              int latencyBuckets) {
     // Open the input state file
     std::ifstream inputStrm(stateFile.c_str());
-    CPPUNIT_ASSERT(inputStrm.is_open());
+    CPPUNIT_ASSERT_MESSAGE("Failed to open file '" + stateFile + "'", inputStrm.is_open());
     std::string origPersistedState(std::istreambuf_iterator<char>{inputStrm},
                                    std::istreambuf_iterator<char>{});
 
@@ -240,23 +236,6 @@ void CRestorePreviousStateTest::anomalyDetectorRestoreHelper(const std::string& 
         ml::api::CSingleStreamSearcher retriever(strm);
         CPPUNIT_ASSERT(restoredJob.restoreState(retriever, completeToTime));
         CPPUNIT_ASSERT(completeToTime > 0);
-    }
-
-    if (isSymmetric) {
-        // Test the persisted state of the restored detector is the
-        // same as the original
-        std::string newPersistedState;
-        {
-            std::ostringstream* strm(nullptr);
-            ml::api::CSingleStreamDataAdder::TOStreamP ptr(strm = new std::ostringstream());
-            ml::api::CSingleStreamDataAdder persister(ptr);
-            CPPUNIT_ASSERT(restoredJob.persistState(persister));
-            newPersistedState = strm->str();
-        }
-
-        CPPUNIT_ASSERT_EQUAL(numRestoredDocs, numDocsInStateFile);
-        CPPUNIT_ASSERT_EQUAL(this->stripDocIds(origPersistedState),
-                             this->stripDocIds(newPersistedState));
     }
 }
 
