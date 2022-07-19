@@ -73,9 +73,10 @@ import os
 import platform
 import subprocess
 import sys
+import time
 
-NUM_WARM_UP_REQUESTS = 100
-NUM_BENCHMARK_REQUEST = 100
+NUM_WARM_UP_REQUESTS = 1000
+NUM_BENCHMARK_REQUEST = 1000
 
 def parse_arguments():
     parser = argparse.ArgumentParser()
@@ -90,25 +91,13 @@ def parse_arguments():
     benchmark_group = parser.add_mutually_exclusive_group()
     benchmark_group.add_argument('--benchmark', action='store_true', help='Benchmark inference time rather than evaluting expected results')
     benchmark_group.add_argument('--threading_benchmark', action='store_true', help='Threading benchmark')
-
+    benchmark_group.add_argument('--control_message_benchmark', action='store_true', help='Run multiple benchmarks interleaved with control messages')
     return parser.parse_args()
 
 def path_to_app():
 
-    os_platform = platform.system()
-    if os_platform == 'Darwin':
-        sub_path = 'darwin-x86_64/controller.app/Contents/MacOS/'
-    elif os_platform == 'Linux':
-        if platform.machine() == 'aarch64':
-            sub_path = 'linux-aarch64/bin/'
-        else:
-            sub_path = 'linux-x86_64/bin/'
-    elif os_platform == 'Windows':
-        sub_path = 'windows-x86_64/bin/'
-    else:
-        raise RuntimeError('Unknown platform')
-
-    return "../../build/distribution/platform/" + sub_path + "pytorch_inference"
+    return "/home/davidkyle/ml-snapshot-build/8.4/platform/linux-x86_64/bin/pytorch_inference"
+    #return "/home/davidkyle/ipex_evaluation/ipex_build/platform/linux-x86_64/bin/pytorch_inference"
 
 def launch_pytorch_app(args):
 
@@ -125,7 +114,14 @@ def launch_pytorch_app(args):
     if args.numAllocations:
         command.append('--numAllocations=' + str(args.numAllocations))
 
-    subprocess.Popen(command).communicate()
+    proc = subprocess.Popen(command)
+    print('')
+    print('')
+    print(f'{proc.pid}')
+    print('')
+    print('')
+    proc.communicate()
+    print('')
 
 def stream_file(source, destination) :
     while True:
@@ -239,7 +235,9 @@ def run_benchmark(args):
 
         # ignore the warmup results
         for i in range(NUM_WARM_UP_REQUESTS, len(result_docs)):
+            # print(json.dumps(result_docs[i]))
             total_time_ms += result_docs[i]['result']['time_ms']
+            
             doc_count += 1
 
         avg_time_ms = total_time_ms / doc_count
@@ -333,6 +331,93 @@ def threading_benchmark(args):
     for result in results:
         print(f"{result['inference_threads']},{result['num_allocations']},{result['run_time_ms']},{result['avg_time_ms']}")
 
+
+
+def write_num_allocations_control_msg(num_allocations, input_file):
+    ctrl_msg = {'request_id': 'ctrl', 'control': 0, 'num_allocations': num_allocations}
+    json.dump(ctrl_msg, input_file)
+
+
+def control_message_benchmark(args):
+
+    allocation_options = [1, 2, 4]
+    with open(args.input_file, 'w') as input_file:
+        with open(args.test_file) as test_file:
+            test_requests = json.load(test_file)
+
+            for num_allocations in allocation_options:
+
+                write_num_allocations_control_msg(num_allocations, input_file)
+
+                print(f"writing benchmark docs", flush=True)
+                warmup_count = 0
+                while warmup_count < NUM_WARM_UP_REQUESTS:
+                    for doc in test_requests:
+                        write_request(doc['input'], input_file)
+                        warmup_count += 1
+                        if warmup_count == NUM_WARM_UP_REQUESTS:
+                            break
+
+                benchmark_count = 0
+                while benchmark_count < NUM_BENCHMARK_REQUEST:
+                    for doc in test_requests:
+                        write_request(doc['input'], input_file)
+                        benchmark_count += 1
+                        if benchmark_count == NUM_BENCHMARK_REQUEST:
+                            break
+
+
+    start_time = datetime.now()
+    launch_pytorch_app(args)
+    end_time = datetime.now()
+    runtime_ms = int((end_time - start_time).total_seconds() * 1000)
+    avg_time_ms = 0
+
+    print()
+    print("reading control message benchmark results...", flush=True)
+    with open(args.output_file) as output_file:
+        result_docs = json.load(output_file)
+
+        print(len(result_docs))
+        assert len(result_docs) == (NUM_WARM_UP_REQUESTS + NUM_BENCHMARK_REQUEST + 1) * len(allocation_options) + 1
+        test_iteration = 1 
+        for num_allocations in allocation_options:
+            total_time_ms = 0
+            doc_count = 0
+
+            # ignore the warmup results
+            start_doc_number = (NUM_WARM_UP_REQUESTS * test_iteration) + (NUM_BENCHMARK_REQUEST * (test_iteration -1)) 
+            end_doc_number = start_doc_number + NUM_BENCHMARK_REQUEST + test_iteration
+
+            print(start_doc_number)
+            print(end_doc_number)
+            # debug
+            #for i in range(start_doc_number - NUM_WARM_UP_REQUESTS, start_doc_number):
+            #    #print(json.dumps(result_docs[i]))
+
+
+            for i in range(start_doc_number, end_doc_number):
+                if 'thread_settings' in result_docs[i]:
+                    read_thread_settings = True
+                    print(result_docs[i])
+                else:
+                    total_time_ms += result_docs[i]['result']['time_ms']
+                    doc_count += 1
+
+            assert read_thread_settings
+
+
+
+            avg_time_ms = total_time_ms / doc_count
+            print()
+            print(f'benchmark results for {num_allocations} allocations')
+            print(f'benchmark {runtime_ms} ms')
+            print(f'{doc_count} requests evaluated in {total_time_ms} ms, avg time {total_time_ms / doc_count} ms')
+            print()
+
+            test_iteration = test_iteration + 1
+
+
 def main():
 
     args = parse_arguments()
@@ -343,6 +428,8 @@ def main():
             run_benchmark(args)
         elif args.threading_benchmark:
             threading_benchmark(args)
+        elif args.control_message_benchmark:
+            control_message_benchmark(args)
         else:
             test_evaluation(args)
     finally:
@@ -355,4 +442,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
