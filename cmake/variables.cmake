@@ -97,12 +97,20 @@ else()
 endif()
 
 set(TORCH_INC "${ML_BASE_PATH}/include/pytorch")
+set(TORCH_API_INC "${ML_BASE_PATH}/include/pytorch/torch/csrc/api/include")
 if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
   set(TORCH_LIB "${ML_BASE_PATH}/lib/torch_cpu${ML_LIBEXT}")
   set(C10_LIB   "${ML_BASE_PATH}/lib/c10${ML_LIBEXT}")
 else()
   set(TORCH_LIB "${ML_BASE_PATH}/lib/libtorch_cpu${ML_LIBEXT}")
   set(C10_LIB   "${ML_BASE_PATH}/lib/libc10${ML_LIBEXT}")
+endif()
+
+set(VISION_INC "${ML_BASE_PATH}/include/torchvision")
+if (CMAKE_SYSTEM_NAME STREQUAL "Windows")
+  set(VISION_LIB "${ML_BASE_PATH}/lib/torchvision${ML_LIBEXT}")
+else()
+  set(VISION_LIB "${ML_BASE_PATH}/lib/libtorchvision${ML_LIBEXT}")
 endif()
 
 if (CMAKE_SYSTEM_NAME STREQUAL "Linux")
@@ -137,6 +145,8 @@ endif()
 
 list(APPEND ML_SYSTEM_INCLUDE_DIRECTORIES
   ${TORCH_INC}
+  ${TORCH_API_INC}
+  ${VISION_INC}
   ${CMAKE_SOURCE_DIR}/3rd_party/include
   ${CMAKE_SOURCE_DIR}/3rd_party/eigen
   ${CMAKE_SOURCE_DIR}/3rd_party/rapidjson/include
